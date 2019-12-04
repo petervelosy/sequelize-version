@@ -1,5 +1,3 @@
-
-
 function _defineProperty(obj, key, value) {
   if (key in obj) {
     Object.defineProperty(obj, key, {
@@ -83,7 +81,6 @@ var hooks = [
   Hook.AFTER_UPDATE,
   Hook.AFTER_BULK_CREATE,
   Hook.AFTER_DESTROY,
-  Hook.AFTER_FIND,
 ];
 
 var attrsToClone = ['type', 'field', 'get', 'set'];
@@ -166,7 +163,9 @@ function Version(model, customOptions) {
     versionModelOptions
   );
 
-  hooks.forEach(function(hook) {
+  var requestedHooks = options.hooks || hooks;
+
+  requestedHooks.forEach(function(hook) {
     model.addHook(hook, function(instanceData, _ref) {
       var transaction = _ref.transaction;
 
@@ -279,5 +278,6 @@ function Version(model, customOptions) {
 
 Version.defaults = Object.assign({}, defaults);
 Version.VersionType = VersionType;
+Version.Hook = Hook;
 
 module.exports = Version;
