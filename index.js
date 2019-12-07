@@ -56,7 +56,15 @@ var Hook = {
   AFTER_DESTROY: 'afterDestroy',
   AFTER_SAVE: 'afterSave',
   AFTER_BULK_CREATE: 'afterBulkCreate',
+  AFTER_BULK_UPDATE: 'afterBulkUpdate',
   AFTER_FIND: 'afterFind',
+  BEFORE_CREATE: 'beforeCreate',
+  BEFORE_UPDATE: 'beforeUpdate',
+  BEFORE_DESTROY: 'beforeDestroy',
+  BEFORE_SAVE: 'beforeSave',
+  BEFORE_BULK_CREATE: 'beforeBulkCreate',
+  BEFORE_BULK_UPDATE: 'beforeBulkUpdate',
+  BEFORE_FIND: 'beforeFind',
 };
 
 var defaults = {
@@ -80,6 +88,7 @@ var hooks = [
   Hook.AFTER_CREATE,
   Hook.AFTER_UPDATE,
   Hook.AFTER_BULK_CREATE,
+  Hook.AFTER_BULK_UPDATE,
   Hook.AFTER_DESTROY,
 ];
 
@@ -87,13 +96,20 @@ var attrsToClone = ['type', 'field', 'get', 'set'];
 
 function getVersionType(hook) {
   switch (hook) {
+  case Hook.BEFORE_CREATE:
+  case Hook.BEFORE_BULK_CREATE:
   case Hook.AFTER_CREATE:
   case Hook.AFTER_BULK_CREATE:
     return VersionType.CREATED;
+  case Hook.BEFORE_BULK_UPDATE:
+  case Hook.BEFORE_UPDATE:
+  case Hook.AFTER_BULK_UPDATE:
   case Hook.AFTER_UPDATE:
     return VersionType.UPDATED;
+  case Hook.BEFORE_DESTROY:
   case Hook.AFTER_DESTROY:
     return VersionType.DELETED;
+  case Hook.BEFORE_FIND:
   case Hook.AFTER_FIND:
     return VersionType.READ;
   }
@@ -129,6 +145,8 @@ function Version(model, customOptions) {
   var versionFieldId = '' + attributePrefix + (underscored ? '_i' : 'I') + 'd';
   var versionFieldTimestamp =
     '' + attributePrefix + (underscored ? '_t' : 'T') + 'imestamp';
+  var versionFieldUser =
+    '' + attributePrefix + (underscored ? '_u' : 'U') + 'serId';
   var versionModelName = '' + capitalize(prefix) + capitalize(model.name);
 
   var versionAttrs =
@@ -163,11 +181,30 @@ function Version(model, customOptions) {
     versionModelOptions
   );
 
+  versionModel.belongsTo(options.userModel, { foreignKey: versionFieldUser });
+
   var requestedHooks = options.hooks || hooks;
+
+  // Make sure individual entity events are always triggered, even when bulk creating / updating.
+  // This is required for maintaining single-entity histories:
+  model.addHook('beforeBulkCreate', function(options) {
+    options.individualHooks = true;
+  });
+
+  model.addHook('beforeBulkUpdate', function(options) {
+    options.individualHooks = true;
+  });
+  model.addHook('afterBulkCreate', function(options) {
+    options.individualHooks = true;
+  });
+
+  model.addHook('afterBulkUpdate', function(options) {
+    options.individualHooks = true;
+  });
 
   requestedHooks.forEach(function(hook) {
     model.addHook(hook, function(instanceData, _ref) {
-      var transaction = _ref.transaction;
+      var transaction = _ref ? _ref.transaction : null;
 
       var cls = namespace || Sequelize.cls;
 
@@ -184,6 +221,20 @@ function Version(model, customOptions) {
       var versionType = getVersionType(hook);
       var instancesData = toArray(instanceData);
 
+      var currentUser = options.getUserFn();
+
+      if (
+        options.auditConditionFn &&
+        !options.auditConditionFn(
+          model,
+          instancesData,
+          versionType,
+          currentUser
+        )
+      ) {
+        return;
+      }
+
       var versionData = instancesData.map(function(data) {
         var _Object$assign;
 
@@ -193,6 +244,11 @@ function Version(model, customOptions) {
           ((_Object$assign = {}),
           _defineProperty(_Object$assign, versionFieldType, versionType),
           _defineProperty(_Object$assign, versionFieldTimestamp, new Date()),
+          _defineProperty(
+            _Object$assign,
+            versionFieldUser,
+            currentUser ? currentUser.id : null
+          ),
           _Object$assign)
         );
       });
